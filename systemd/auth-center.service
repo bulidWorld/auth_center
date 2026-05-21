@@ -1,0 +1,26 @@
+[Unit]
+Description=Auth Center - LDAP Authentication Service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/apps/auth_center
+ExecStartPre=/usr/bin/mkdir -p /var/log/app-auth-center
+ExecStart=/usr/bin/node src/index.js >> /var/log/app-auth-center/app.log 2>&1
+Restart=on-failure
+RestartSec=5
+StandardOutput=null
+StandardError=null
+
+# Environment
+EnvironmentFile=/opt/apps/auth_center/.env
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/apps/auth_center/data
+
+[Install]
+WantedBy=multi-user.target

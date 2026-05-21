@@ -1,0 +1,13 @@
+node_modules/
+data/
+.env
+*.log
+npm-debug.log*
+.git/
+.claude/
+systemd/
+Dockerfile
+docker-compose.yml
+.dockerignore
+logrotate/
+tests/

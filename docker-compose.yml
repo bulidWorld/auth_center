@@ -1,0 +1,16 @@
+services:
+  auth-center:
+    build: .
+    container_name: auth-center
+    ports:
+      - "10532:10532"
+    volumes:
+      - auth-data:/opt/apps/auth_center/data
+      - auth-logs:/var/log/app-auth-center
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  auth-data:
+  auth-logs:
