@@ -53,6 +53,7 @@ router.post('/login', loginLimiter, async (req, res) => {
         username: user.username,
         displayName: user.displayName,
         email: user.email,
+        dn: user.dn,
       },
     });
   } catch (err) {

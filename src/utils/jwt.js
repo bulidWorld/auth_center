@@ -26,11 +26,11 @@ function ensureKeys() {
 
 const keys = ensureKeys();
 
-function signAccessToken(payload) {
+function signAccessToken(payload, ttlSeconds) {
   return jwt.sign(payload, keys.privateKey, {
     algorithm: 'RS256',
     issuer: config.jwt.issuer,
-    expiresIn: config.jwt.accessTokenTTL,
+    expiresIn: ttlSeconds || config.jwt.accessTokenTTL,
     keyid: 'key-001',
   });
 }

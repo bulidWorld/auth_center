@@ -39,6 +39,9 @@ app.use('/api', require('./api/users'));
 // Gateway (nginx auth_request)
 app.use('/gateway', require('./gateway/validate'));
 
+// Internal service-to-service routes
+app.use('/api/internal', require('./api/internal'));
+
 // Admin routes
 app.use('/admin', require('./admin/clients'));
 
