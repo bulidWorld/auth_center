@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const config = require('./config');
+const logger = require('./logger');
 const { initDB } = require('./db/schema');
 
 // Initialize database
@@ -22,6 +23,26 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+// Request logging
+app.use((req, res, next) => {
+  const start = Date.now();
+  if (req.path !== '/health') {
+    logger.debug(`--> ${req.method} ${req.path}`, { ip: req.ip });
+  }
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    if (req.path === '/health') return;
+    logger.info(`<-- ${req.method} ${req.path}`, {
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      ms,
+      ip: req.ip,
+    });
+  });
+  next();
+});
 
 // OAuth 2.0 / OIDC routes
 app.use('/authorize', require('./oauth/authorize'));
@@ -52,16 +73,16 @@ app.get('/health', (req, res) => {
 
 // Error handler
 app.use((err, req, res, _next) => {
-  console.error('Unhandled error:', err);
+  logger.error('Unhandled error:', err);
   res.status(500).json({ error: 'internal_server_error', error_description: 'An unexpected error occurred' });
 });
 
 // Start server
 const PORT = config.port;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Auth Center running on port ${PORT}`);
-  console.log(`LDAP URL: ${config.ldap.url}`);
-  console.log(`JWT Issuer: ${config.jwt.issuer}`);
+  logger.info(`Auth Center running on port ${PORT}`);
+  logger.info(`LDAP URL: ${config.ldap.url}`);
+  logger.info(`JWT Issuer: ${config.jwt.issuer}`);
 });
 
 module.exports = app;

@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db/init');
 const config = require('../config');
+const logger = require('../logger');
 const { signAccessToken } = require('../utils/jwt');
 const { hashToken, generateToken } = require('../utils/crypto');
 const { authenticate } = require('../ldap/authenticator');
@@ -18,6 +19,7 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
 
   try {
+    logger.info('Login attempt', { username, client_id: client_id || 'api' });
     const user = await authenticate(username, password);
     const jti = crypto.randomUUID();
     const accessTokenTTL = Math.min(ttl || config.jwt.accessTokenTTL, config.jwt.accessTokenTTL);
@@ -43,6 +45,8 @@ router.post('/login', loginLimiter, async (req, res) => {
       'INSERT INTO refresh_tokens (client_id, user_dn, user_data, token_hash, scope, expires_at) VALUES (?, ?, ?, ?, ?, ?)'
     ).run(client_id || 'api', user.dn, JSON.stringify(user), hashToken(refreshToken), 'api', refreshTokenExpiresAt);
 
+    logger.info('Login success', { username, client_id: client_id || 'api' });
+
     res.json({
       access_token: accessToken,
       token_type: 'Bearer',
@@ -57,6 +61,7 @@ router.post('/login', loginLimiter, async (req, res) => {
       },
     });
   } catch (err) {
+    logger.warn('Login failed', { username, error: err.message });
     res.status(401).json({ error: 'invalid_credentials', error_description: err.message || 'Authentication failed' });
   }
 });

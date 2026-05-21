@@ -2,13 +2,14 @@
 
 ## 概述
 
-认证中心基于 LDAP 提供统一认证，支持三种接入方式：
+认证中心基于 LDAP 提供统一认证，支持四种接入方式：
 
 | 方式 | 场景 | 协议 |
 |---|---|---|
 | **API Token** | 服务间后端调用，无浏览器参与 | REST API + JWT |
 | **OAuth 2.0 SSO** | 浏览器 Web 应用，用户跳转登录 | Authorization Code + PKCE |
 | **LDAP 用户查询** | 代理查询 LDAP 用户信息 | REST API |
+| **Internal Token** | 服务间签发/验证自定义 JWT | REST API + API Key |
 
 **基础信息**
 
@@ -55,17 +56,15 @@ Content-Type: application/json
 **成功响应 (200)**
 
 ```json
-{
-  "access_token": "eyJhbGciOiJSUzI1NiIs...",
-  "token_type": "Bearer",
-  "expires_in": 3600,
-  "refresh_token": "2211b0b22df368310f510cab...",
-  "scope": "api",
-  "user": {
-    "username": "zhiwenxia",
-    "displayName": "zhiwenxia",
-    "email": null
-  }
+
+{"access_token":"eyJhbGc...",
+"token_type":"Bearer","expires_in":3600,
+"refresh_token":"63a624...",
+"scope":"api",
+"user":{"username":"zhiwenxia",
+"displayName":"zhiwenxia",
+"email":"xxxx",
+"dn":"uid=zhiwenxia,ou=people,dc=naze"}
 }
 ```
 
@@ -368,6 +367,104 @@ Authorization: Bearer <valid_token>
 
 ---
 
+## 方式四：Internal Token 签名/验证（服务间调用）
+
+> 需要 `X-API-Key` 头，值为 `.env` 中配置的 `ADMIN_API_KEY`。
+
+### 签发 Token
+
+为内部服务签发自定义 payload 的 JWT，无需 LDAP 认证。
+
+**请求**
+
+```http
+POST /api/internal/token/sign HTTP/1.1
+Host: auth-host:10532
+Content-Type: application/json
+X-API-Key: <你的API Key>
+
+{
+  "payload": {
+    "sub": "service:my-app",
+    "role": "worker",
+    "custom_field": "value"
+  },
+  "ttl": 86400
+}
+```
+
+- `payload`（必填）：自定义 JWT payload 对象，会自动补充 `iss`、`iat`、`exp`、`jti`
+- `ttl`（可选）：token 有效期（秒），不传则使用默认值（3600）
+
+**成功响应 (200)**
+
+```json
+{
+  "token": "eyJhbGciOiJSUzI1NiIs..."
+}
+```
+
+### 验证 Token
+
+验证 JWT 签名和有效期，返回解码后的 payload。
+
+**请求**
+
+```http
+POST /api/internal/token/verify HTTP/1.1
+Host: auth-host:10532
+Content-Type: application/json
+X-API-Key: <你的API Key>
+
+{
+  "token": "eyJhbGciOiJSUzI1NiIs..."
+}
+```
+
+**成功响应 (200)**
+
+```json
+{
+  "valid": true,
+  "payload": {
+    "sub": "service:my-app",
+    "role": "worker",
+    "custom_field": "value",
+    "iss": "auth-center",
+    "iat": 1710259200,
+    "exp": 1710345600,
+    "jti": "uuid"
+  }
+}
+```
+
+**失败响应 (401)**
+
+```json
+{
+  "valid": false,
+  "error": "token_expired"
+}
+```
+
+### 典型使用场景
+
+```
+服务A                           认证中心                      服务B
+  |                               |                            |
+  | POST /api/internal/token/sign |                            |
+  | X-API-Key + payload -------->|                            |
+  | <--- { token } -------------|                            |
+  |                               |                            |
+  | 调用服务B，携带 token ------>|                            |
+  |                               |                            |
+  |                               |  服务B 回调验证 token       |
+  |                               |  POST /api/internal/token/verify
+  |                               |  <--- { valid, payload }   |
+```
+
+---
+
 ## 接口一览
 
 ### API Token 接口
@@ -398,6 +495,15 @@ Authorization: Bearer <valid_token>
 
 > Admin 接口需在 Header 中传递 `X-Admin-API-Key`。
 
+### Internal 内部接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/internal/token/sign` | 签发自定义 JWT（需 API Key） |
+| POST | `/api/internal/token/verify` | 验证 JWT 签名及有效期（需 API Key） |
+
+> Internal 接口需在 Header 中传递 `X-API-Key`。
+
 ### OAuth 2.0 接口
 
 | 方法 | 路径 | 说明 |
@@ -419,6 +525,7 @@ Authorization: Bearer <valid_token>
 | `invalid_grant` | 授权码无效或已过期 |
 | `invalid_client` | 客户端未注册或密钥错误 |
 | `user_not_found` | 用户不存在 |
+| `unauthorized` | API Key 缺失或无效 |
 
 ---
 
@@ -459,6 +566,32 @@ async function getUser(username) {
   });
   return res.json();
 }
+
+// 4. 签发自定义 Token（服务间调用）
+async function signServiceToken(payload, ttl, apiKey) {
+  const res = await fetch(`${AUTH_URL}/api/internal/token/sign`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': apiKey,
+    },
+    body: JSON.stringify({ payload, ttl }),
+  });
+  return res.json();
+}
+
+// 5. 验证 Token（服务间回调验证）
+async function verifyServiceToken(token, apiKey) {
+  const res = await fetch(`${AUTH_URL}/api/internal/token/verify`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': apiKey,
+    },
+    body: JSON.stringify({ token }),
+  });
+  return res.json();
+}
 ```
 
 ### Python
@@ -493,6 +626,26 @@ def get_user(username, token):
     )
     res.raise_for_status()
     return res.json()
+
+# 4. 签发自定义 Token（服务间调用）
+def sign_service_token(payload, ttl, api_key):
+    res = requests.post(
+        f"{AUTH_URL}/api/internal/token/sign",
+        json={"payload": payload, "ttl": ttl},
+        headers={"X-API-Key": api_key},
+    )
+    res.raise_for_status()
+    return res.json()
+
+# 5. 验证 Token（服务间回调验证）
+def verify_service_token(token, api_key):
+    res = requests.post(
+        f"{AUTH_URL}/api/internal/token/verify",
+        json={"token": token},
+        headers={"X-API-Key": api_key},
+    )
+    res.raise_for_status()
+    return res.json()
 ```
 
 ### cURL
@@ -519,6 +672,18 @@ curl -X POST http://auth-host:10532/api/revoke \
 # 查询用户
 curl http://auth-host:10532/api/users/zhiwenxia \
   -H "Authorization: Bearer <access_token>"
+
+# 签发自定义 Token（服务间调用）
+curl -X POST http://auth-host:10532/api/internal/token/sign \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <api_key>" \
+  -d '{"payload":{"sub":"service:my-app","role":"worker"},"ttl":86400}'
+
+# 验证 Token
+curl -X POST http://auth-host:10532/api/internal/token/verify \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <api_key>" \
+  -d '{"token":"<jwt_token>"}'
 ```
 
 ---
